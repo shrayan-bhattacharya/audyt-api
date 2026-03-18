@@ -60,7 +60,7 @@ def verify_claim(
     collection,
     api_key: str,
     top_k: int = 7,
-    distance_threshold: float = 1.2,
+    distance_threshold: float = 0.99,
     context: str = "",
 ) -> dict:
     """

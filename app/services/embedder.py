@@ -1,12 +1,15 @@
 """
-Audyt.ai — chunking and ChromaDB embedding service.
+Audyt.ai — chunking and keyword search service.
 
-Uses EphemeralClient (in-memory, per-job) instead of PersistentClient
-so each audit job gets an isolated vector store with no disk state.
+Replaces ChromaDB (which loads an 80MB onnxruntime model) with a
+lightweight in-memory Jaccard keyword search. Claude does the actual
+reasoning; we just need to surface the most relevant source chunks.
+
+Memory saving: ~200MB less RAM per process on Render free tier.
 """
 
+import re
 import uuid
-import chromadb
 
 
 def chunk_with_metadata(
@@ -15,7 +18,7 @@ def chunk_with_metadata(
     chunk_overlap: int = 50,
 ) -> list[dict]:
     """
-    Splits parsed blocks into ChromaDB-ready chunks.
+    Splits parsed blocks into searchable chunks.
     Short blocks (< chunk_size) pass through as a single chunk.
     Long blocks are split with overlap; every sub-chunk inherits all parent metadata.
     Each chunk gets a unique chunk_id.
@@ -51,57 +54,40 @@ def chunk_with_metadata(
 
 def create_vector_store(chunks: list[dict], collection_name: str | None = None):
     """
-    Embeds all chunks into an in-memory ChromaDB EphemeralClient.
-    Lists are converted to comma-separated strings (ChromaDB scalar-only requirement).
-    Returns (collection, client, chunks).
+    Stores chunks in memory for keyword search.
+    Returns (chunks, None, chunks) — API-compatible with the old ChromaDB version.
+    The first element (chunks list) is what gets passed as 'collection' to search_sources.
     """
-    client = chromadb.EphemeralClient()
-    name = collection_name if collection_name else f"job_{uuid.uuid4().hex}"
-    collection = client.create_collection(name)
-
-    ids = []
-    documents = []
-    metadatas = []
-
-    for chunk in chunks:
-        ids.append(chunk["chunk_id"])
-        documents.append(chunk["text"])
-
-        meta = {}
-        for k, v in chunk.items():
-            if k in ("text", "chunk_id"):
-                continue
-            if isinstance(v, list):
-                meta[k] = ", ".join(str(x) for x in v)
-            elif v is None:
-                meta[k] = ""
-            else:
-                meta[k] = v
-        metadatas.append(meta)
-
-    if not ids:
-        raise ValueError("No chunks to embed — the parsed documents may be empty or unreadable.")
-
-    collection.add(ids=ids, documents=documents, metadatas=metadatas)
-    return collection, client, chunks
+    if not chunks:
+        raise ValueError("No chunks to store — the parsed documents may be empty or unreadable.")
+    return chunks, None, chunks
 
 
-def search_sources(collection, query: str, top_k: int = 5) -> list[dict]:
+def _tokenize(text: str) -> set[str]:
+    return set(re.findall(r'\b\w+\b', text.lower()))
+
+
+def search_sources(collection: list[dict], query: str, top_k: int = 5) -> list[dict]:
     """
-    Semantic search over the ChromaDB collection.
-    Returns top_k results sorted by distance (closest first),
-    each with full metadata and distance score.
+    Keyword search over the chunks list using Jaccard similarity.
+    Returns top_k results sorted by distance (lower = more relevant).
+    Distance is 1 - Jaccard(query_tokens, chunk_tokens), range [0, 1].
     """
-    results = collection.query(query_texts=[query], n_results=top_k)
+    query_tokens = _tokenize(query)
+    if not query_tokens:
+        return []
 
-    hits = []
-    for i in range(len(results["ids"][0])):
-        hit = {
-            "text": results["documents"][0][i],
-            "distance": round(results["distances"][0][i], 4),
-            **results["metadatas"][0][i],
-        }
-        hits.append(hit)
+    scored = []
+    for chunk in collection:
+        chunk_tokens = _tokenize(chunk["text"])
+        if not chunk_tokens:
+            continue
+        overlap = len(query_tokens & chunk_tokens)
+        if overlap == 0:
+            continue
+        similarity = overlap / len(query_tokens | chunk_tokens)
+        distance = round(1.0 - similarity, 4)
+        scored.append((distance, chunk))
 
-    hits.sort(key=lambda x: x["distance"])
-    return hits
+    scored.sort(key=lambda x: x[0])
+    return [{"distance": d, **c} for d, c in scored[:top_k]]
