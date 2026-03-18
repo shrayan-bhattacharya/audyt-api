@@ -10,7 +10,7 @@ GET  /api/v1/audit/{job_id}/report/csv   Download CSV report
 import uuid
 from typing import Optional, List
 
-from fastapi import APIRouter, BackgroundTasks, File, Form, HTTPException, UploadFile
+from fastapi import APIRouter, BackgroundTasks, File, Form, HTTPException, Request, UploadFile
 from fastapi.responses import PlainTextResponse
 
 from app.config import settings
@@ -28,8 +28,21 @@ from app.models.schemas import (
 router = APIRouter(prefix="/api/v1", tags=["audit"])
 
 
+def _optional_email(request: Request) -> Optional[str]:
+    """Extract user email from Bearer token if present — never raises."""
+    auth = request.headers.get("Authorization", "")
+    if not auth.startswith("Bearer "):
+        return None
+    try:
+        from app.services.auth import decode_token
+        return decode_token(auth.split(" ", 1)[1])
+    except Exception:
+        return None
+
+
 @router.post("/audit", response_model=StartAuditResponse, status_code=202)
 async def start_audit(
+    request: Request,
     background_tasks: BackgroundTasks,
     source_files: List[UploadFile] = File(..., description="Source documents (PDF, DOCX, XLSX, TXT)"),
     report_file: Optional[UploadFile] = File(None, description="AI-generated report file (optional)"),
@@ -69,6 +82,9 @@ async def start_audit(
             detail="Provide either report_file or report_text.",
         )
 
+    user_email = _optional_email(request)
+    source_filenames = [name for name, _ in source_file_data]
+
     job_id = str(uuid.uuid4())
     job_store.create_job(job_id)
 
@@ -79,6 +95,8 @@ async def start_audit(
         report_text=final_report_text,
         context=context or "",
         api_key=settings.anthropic_api_key,
+        user_email=user_email,
+        source_filenames=source_filenames,
     )
 
     return {"job_id": job_id, "status": "queued"}

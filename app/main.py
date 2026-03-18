@@ -2,6 +2,8 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.routes import audit, health
+from app.routes.auth_routes import router as auth_router
+from app.routes.history import router as history_router
 
 app = FastAPI(
     title="Audyt.ai API",
@@ -21,3 +23,5 @@ app.add_middleware(
 
 app.include_router(health.router)
 app.include_router(audit.router)
+app.include_router(auth_router)
+app.include_router(history_router)

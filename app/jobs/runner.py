@@ -10,6 +10,8 @@ Pipeline:
   5. Generate report     → summary dict, plain-text report, CSV
 """
 
+from typing import Optional
+
 from app.services.parser import parse_uploaded_file
 from app.services.embedder import chunk_with_metadata, create_vector_store
 from app.services.extractor import extract_claims
@@ -24,6 +26,8 @@ def run_audit(
     report_text: str,
     context: str,
     api_key: str,
+    user_email: Optional[str] = None,
+    source_filenames: Optional[list[str]] = None,
 ) -> None:
     try:
         # ── 1. Parse source documents ──────────────────────────────────────────
@@ -90,6 +94,13 @@ def run_audit(
             "report_text": report_text_out,
             "report_csv":  report_csv,
         })
+
+        if user_email:
+            from app.services.user_store import save_audit_to_history
+            save_audit_to_history(user_email, job_id, {
+                **summary,
+                "filename_hints": source_filenames or [],
+            })
 
     except Exception as exc:
         job_store.set_failed(job_id, str(exc))
