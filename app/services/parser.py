@@ -29,8 +29,12 @@ _WIN_POPPLER = (
 )
 
 
-def _ocr_pdf(file_bytes: bytes, filename: str) -> list[dict]:
-    """OCR fallback for image-based PDFs. Requires tesseract + poppler."""
+def parse_pdf(file_bytes: bytes, filename: str) -> list[dict]:
+    """
+    Parse PDF page by page.
+    Per-page OCR fallback: if a page yields fewer than 50 characters,
+    OCR that individual page instead of silently dropping it.
+    """
     import pytesseract
     from pdf2image import convert_from_bytes
 
@@ -40,35 +44,34 @@ def _ocr_pdf(file_bytes: bytes, filename: str) -> list[dict]:
     else:
         poppler_path = None
 
-    images = convert_from_bytes(file_bytes, poppler_path=poppler_path)
-    chunks = []
-    for i, img in enumerate(images, start=1):
-        text = pytesseract.image_to_string(img).strip()
-        if text:
-            chunks.append({
-                "text": text,
-                "source": filename,
-                "page": i,
-                "type": "pdf",
-            })
-    return chunks
-
-
-def parse_pdf(file_bytes: bytes, filename: str) -> list[dict]:
-    """Parse PDF page by page. Falls back to OCR for scanned/image PDFs."""
     chunks = []
     with pdfplumber.open(io.BytesIO(file_bytes)) as pdf:
+        total_pages = len(pdf.pages)
+        # Convert full PDF to images once, reused for any page needing OCR
+        images = None
+
         for i, page in enumerate(pdf.pages, start=1):
-            text = page.extract_text() or ""
-            if text.strip():
+            text = (page.extract_text() or "").strip()
+            if len(text) >= 50:
                 chunks.append({
                     "text": text,
                     "source": filename,
                     "page": i,
                     "type": "pdf",
                 })
-    if not chunks:
-        chunks = _ocr_pdf(file_bytes, filename)
+            else:
+                # Lazy-convert to images on first OCR need
+                if images is None:
+                    images = convert_from_bytes(file_bytes, poppler_path=poppler_path)
+                if i - 1 < len(images):
+                    ocr_text = pytesseract.image_to_string(images[i - 1]).strip()
+                    if ocr_text:
+                        chunks.append({
+                            "text": ocr_text,
+                            "source": filename,
+                            "page": i,
+                            "type": "pdf",
+                        })
     return chunks
 
 
