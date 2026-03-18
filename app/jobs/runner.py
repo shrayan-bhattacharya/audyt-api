@@ -10,6 +10,7 @@ Pipeline:
   5. Generate report     → summary dict, plain-text report, CSV
 """
 
+import gc
 from typing import Optional
 
 from app.services.parser import parse_uploaded_file
@@ -29,6 +30,8 @@ def run_audit(
     user_email: Optional[str] = None,
     source_filenames: Optional[list[str]] = None,
 ) -> None:
+    collection = None
+    chroma_client = None
     try:
         # ── 1. Parse source documents ──────────────────────────────────────────
         job_store.set_processing(job_id, stage="parsing_sources")
@@ -43,7 +46,7 @@ def run_audit(
         # ── 2. Chunk + embed into ChromaDB ─────────────────────────────────────
         job_store.set_processing(job_id, stage="embedding")
         chunks = chunk_with_metadata(all_blocks)
-        collection, _ = create_vector_store(chunks)
+        collection, chroma_client, _ = create_vector_store(chunks)
 
         # ── 3. Extract verifiable claims from the report ───────────────────────
         job_store.set_processing(job_id, stage="extracting_claims")
@@ -104,3 +107,13 @@ def run_audit(
 
     except Exception as exc:
         job_store.set_failed(job_id, str(exc))
+    finally:
+        try:
+            if chroma_client is not None and collection is not None:
+                chroma_client.delete_collection(collection.name)
+            collection = None
+            chroma_client = None
+            gc.collect()
+            print(f"Memory cleanup complete for job {job_id}")
+        except Exception:
+            pass

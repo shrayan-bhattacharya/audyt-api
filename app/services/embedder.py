@@ -53,7 +53,7 @@ def create_vector_store(chunks: list[dict], collection_name: str | None = None):
     """
     Embeds all chunks into an in-memory ChromaDB EphemeralClient.
     Lists are converted to comma-separated strings (ChromaDB scalar-only requirement).
-    Returns (collection, chunks).
+    Returns (collection, client, chunks).
     """
     client = chromadb.EphemeralClient()
     name = collection_name if collection_name else f"job_{uuid.uuid4().hex}"
@@ -83,7 +83,7 @@ def create_vector_store(chunks: list[dict], collection_name: str | None = None):
         raise ValueError("No chunks to embed — the parsed documents may be empty or unreadable.")
 
     collection.add(ids=ids, documents=documents, metadatas=metadatas)
-    return collection, chunks
+    return collection, client, chunks
 
 
 def search_sources(collection, query: str, top_k: int = 5) -> list[dict]:
