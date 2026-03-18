@@ -1,0 +1,13 @@
+fastapi
+uvicorn[standard]
+python-multipart
+pydantic-settings
+chromadb
+anthropic
+python-dotenv
+pdfplumber
+python-docx
+openpyxl
+pytesseract
+pdf2image
+Pillow
