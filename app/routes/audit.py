@@ -77,6 +77,11 @@ async def start_audit(
         final_report_text = report_text.strip()
 
     if not final_report_text:
+        if report_file is not None:
+            raise HTTPException(
+                status_code=422,
+                detail="Could not extract any text from the report file. It may be a scanned/image-based PDF. Please copy-paste the report text instead using the 'Paste text' tab.",
+            )
         raise HTTPException(
             status_code=422,
             detail="Provide either report_file or report_text.",

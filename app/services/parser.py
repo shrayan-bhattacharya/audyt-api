@@ -49,7 +49,7 @@ def parse_pdf(file_bytes: bytes, filename: str) -> list[dict]:
 
         for i, page in enumerate(pdf.pages, start=1):
             text = (page.extract_text() or "").strip()
-            if len(text) >= 50:
+            if len(text) >= 10:
                 chunks.append({
                     "text": text,
                     "source": filename,
