@@ -34,12 +34,9 @@ def parse_pdf(file_bytes: bytes, filename: str) -> list[dict]:
     Parse PDF page by page.
     Per-page OCR fallback: if a page yields fewer than 50 characters,
     OCR that individual page instead of silently dropping it.
+    OCR is best-effort — if tesseract/poppler are not installed the page is skipped.
     """
-    import pytesseract
-    from pdf2image import convert_from_bytes
-
     if os.name == "nt":
-        pytesseract.pytesseract.tesseract_cmd = _WIN_TESSERACT
         poppler_path = _WIN_POPPLER
     else:
         poppler_path = None
@@ -61,17 +58,25 @@ def parse_pdf(file_bytes: bytes, filename: str) -> list[dict]:
                 })
             else:
                 # Lazy-convert to images on first OCR need
-                if images is None:
-                    images = convert_from_bytes(file_bytes, poppler_path=poppler_path)
-                if i - 1 < len(images):
-                    ocr_text = pytesseract.image_to_string(images[i - 1]).strip()
-                    if ocr_text:
-                        chunks.append({
-                            "text": ocr_text,
-                            "source": filename,
-                            "page": i,
-                            "type": "pdf",
-                        })
+                try:
+                    import pytesseract
+                    from pdf2image import convert_from_bytes
+                    if os.name == "nt":
+                        pytesseract.pytesseract.tesseract_cmd = _WIN_TESSERACT
+                    if images is None:
+                        images = convert_from_bytes(file_bytes, poppler_path=poppler_path)
+                    if i - 1 < len(images):
+                        ocr_text = pytesseract.image_to_string(images[i - 1]).strip()
+                        if ocr_text:
+                            chunks.append({
+                                "text": ocr_text,
+                                "source": filename,
+                                "page": i,
+                                "type": "pdf",
+                            })
+                except Exception:
+                    # tesseract/poppler not available — skip this page silently
+                    pass
     return chunks
 
 
