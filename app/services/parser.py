@@ -20,63 +20,20 @@ import pdfplumber
 import openpyxl
 import docx
 
-# ── OCR paths — Windows only; on Linux tesseract+poppler are on system PATH ──
-_WIN_TESSERACT = r"C:\Program Files\Tesseract-OCR\tesseract.exe"
-_WIN_POPPLER = (
-    r"C:\Users\shray\AppData\Local\Microsoft\WinGet\Packages"
-    r"\oschwartz10612.Poppler_Microsoft.Winget.Source_8wekyb3d8bbwe"
-    r"\poppler-25.07.0\Library\bin"
-)
-
 
 def parse_pdf(file_bytes: bytes, filename: str) -> list[dict]:
-    """
-    Parse PDF page by page.
-    Per-page OCR fallback: if a page yields fewer than 50 characters,
-    OCR that individual page instead of silently dropping it.
-    OCR is best-effort — if tesseract/poppler are not installed the page is skipped.
-    """
-    if os.name == "nt":
-        poppler_path = _WIN_POPPLER
-    else:
-        poppler_path = None
-
+    """Parse PDF page by page using pdfplumber. Pages with no extractable text are skipped."""
     chunks = []
     with pdfplumber.open(io.BytesIO(file_bytes)) as pdf:
-        total_pages = len(pdf.pages)
-        # Convert full PDF to images once, reused for any page needing OCR
-        images = None
-
         for i, page in enumerate(pdf.pages, start=1):
             text = (page.extract_text() or "").strip()
-            if len(text) >= 10:
+            if text:
                 chunks.append({
                     "text": text,
                     "source": filename,
                     "page": i,
                     "type": "pdf",
                 })
-            else:
-                # Lazy-convert to images on first OCR need
-                try:
-                    import pytesseract
-                    from pdf2image import convert_from_bytes
-                    if os.name == "nt":
-                        pytesseract.pytesseract.tesseract_cmd = _WIN_TESSERACT
-                    if images is None:
-                        images = convert_from_bytes(file_bytes, poppler_path=poppler_path)
-                    if i - 1 < len(images):
-                        ocr_text = pytesseract.image_to_string(images[i - 1]).strip()
-                        if ocr_text:
-                            chunks.append({
-                                "text": ocr_text,
-                                "source": filename,
-                                "page": i,
-                                "type": "pdf",
-                            })
-                except Exception:
-                    # tesseract/poppler not available — skip this page silently
-                    pass
     return chunks
 
 
