@@ -22,14 +22,9 @@ class AuthBody(BaseModel):
     password: str
 
 
-@router.post("/signup", status_code=201)
+@router.post("/signup", status_code=403)
 def signup(body: AuthBody):
-    if get_user_by_email(body.email):
-        raise HTTPException(status_code=409, detail="Email already registered.")
-    hashed = hash_password(body.password)
-    create_user(body.email, hashed)
-    token = create_access_token({"sub": body.email})
-    return {"access_token": token, "token_type": "bearer"}
+    raise HTTPException(status_code=403, detail="Sign-up is disabled.")
 
 
 @router.post("/login")
